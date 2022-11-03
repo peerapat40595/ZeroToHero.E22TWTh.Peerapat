@@ -5,7 +5,7 @@ use cw2::set_contract_version;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{Config, CONFIG};
+use crate::state::{Config, Poll, CONFIG, POLLS};
 
 const CONTRACT_NAME: &str = "crates.io:cw-starter";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -32,12 +32,50 @@ pub fn instantiate(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
-    _deps: DepsMut,
-    _env: Env,
-    _info: MessageInfo,
-    _msg: ExecuteMsg,
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
-    unimplemented!()
+    match msg {
+        ExecuteMsg::CreatePoll {
+            poll_id,
+            question,
+            options,
+        } => execute_create_poll(deps, env, info, poll_id, question, options),
+        ExecuteMsg::DeletePoll { poll_id } => todo!(),
+        ExecuteMsg::Vote { poll_id, vote } => todo!(),
+        ExecuteMsg::UnVote { poll_id } => todo!(),
+    }
+}
+
+fn execute_create_poll(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    poll_id: String,
+    question: String,
+    options: Vec<String>,
+) -> Result<Response, ContractError> {
+    if options.len() > 10 {
+        return Err(ContractError::TooManyOptions {});
+    }
+
+    let mut opts: Vec<(String, u64)> = vec![];
+    for option in options {
+        opts.push((option, 0));
+    }
+
+    let poll = Poll {
+        creator: info.sender,
+        question: question.to_string(),
+        options: opts,
+    };
+    POLLS.save(deps.storage, poll_id, &poll)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "create_poll")
+        .add_attribute("question", question))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
