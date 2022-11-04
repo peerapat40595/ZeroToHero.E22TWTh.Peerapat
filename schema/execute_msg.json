@@ -56,6 +56,26 @@
     {
       "type": "object",
       "required": [
+        "close_poll"
+      ],
+      "properties": {
+        "close_poll": {
+          "type": "object",
+          "required": [
+            "poll_id"
+          ],
+          "properties": {
+            "poll_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
         "vote"
       ],
       "properties": {

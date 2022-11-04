@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Order, Response, StdResult,
+    coin, to_binary, BankMsg, Binary, Deps, DepsMut, Env, MessageInfo, Order, Response, StdResult,
 };
 use cw2::set_contract_version;
 
@@ -108,9 +108,14 @@ fn execute_create_poll(
 fn execute_close_poll(
     deps: DepsMut,
     _env: Env,
-    _info: MessageInfo,
+    info: MessageInfo,
     poll_id: String,
 ) -> Result<Response, ContractError> {
+    let admin = CONFIG.load(deps.storage)?.admin;
+    if info.sender != admin {
+        return Err(ContractError::Unauthorized {});
+    }
+
     let poll = POLLS.may_load(deps.storage, &poll_id)?;
 
     match poll {
@@ -124,7 +129,16 @@ fn execute_close_poll(
 
             // Save the update
             POLLS.save(deps.storage, &poll_id, &poll)?;
+
+            let config = CONFIG.load(deps.storage)?;
+            let create_poll_fee = config.create_poll_fee.unwrap_or_default();
+            let bank_msg = BankMsg::Send {
+                to_address: info.sender.to_string(),
+                amount: vec![coin(create_poll_fee.amount.u128(), create_poll_fee.denom)],
+            };
+
             Ok(Response::new()
+                .add_message(bank_msg)
                 .add_attribute("action", "close_poll")
                 .add_attribute("question", poll.question)
                 .add_attribute("is_closed", "true"))
@@ -244,7 +258,7 @@ mod tests {
     };
     use crate::ContractError;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{attr, coin, from_binary}; // helper to construct an attribute e.g. ("action", "instantiate")
+    use cosmwasm_std::{attr, coin, from_binary, BankMsg, CosmosMsg}; // helper to construct an attribute e.g. ("action", "instantiate")
 
     use super::execute; // mock functions to mock an environment, message info, dependencies // our instantate method
 
@@ -472,11 +486,11 @@ mod tests {
     fn test_execute_close_poll_valid() {
         let mut deps = mock_dependencies();
         let env = mock_env();
-        let info = mock_info(ADDR1, &[]);
+        let info = mock_info(ADDR1, &[coin(1, ATOM)]);
         // Instantiate the contract
         let msg = InstantiateMsg {
             admin: None,
-            create_poll_fee: None,
+            create_poll_fee: Some(coin(1, ATOM)),
         };
         let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
@@ -499,6 +513,7 @@ mod tests {
         };
 
         let res = execute(deps.as_mut(), env, info, msg).unwrap();
+        let msg = res.messages[0].clone().msg;
 
         assert_eq!(
             res.attributes,
@@ -507,7 +522,49 @@ mod tests {
                 attr("question", question.to_string()),
                 attr("is_closed", "true")
             ]
+        );
+        assert_eq!(
+            msg,
+            CosmosMsg::Bank(BankMsg::Send {
+                to_address: ADDR1.to_string(),
+                amount: vec![coin(1, ATOM)],
+            })
         )
+    }
+
+    #[test]
+    fn test_execute_close_poll_invalid_unauthorized() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info(ADDR1, &[]);
+        // Instantiate the contract
+        let msg = InstantiateMsg {
+            admin: Some(ADDR2.to_string()),
+            create_poll_fee: None,
+        };
+        let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // New execute msg
+        let question = "What's your favourite Cosmos coin?";
+        let msg = ExecuteMsg::CreatePoll {
+            poll_id: "some_id".to_string(),
+            question: question.to_string(),
+            options: vec![
+                "Cosmos Hub".to_string(),
+                "Juno".to_string(),
+                "Osmosis".to_string(),
+            ],
+        };
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // Close poll
+        let msg = ExecuteMsg::ClosePoll {
+            poll_id: "some_id".to_string(),
+        };
+
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+
+        assert_eq!(err, ContractError::Unauthorized {})
     }
 
     #[test]

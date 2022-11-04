@@ -4,12 +4,16 @@
   "type": "object",
   "required": [
     "creator",
+    "is_closed",
     "options",
     "question"
   ],
   "properties": {
     "creator": {
       "$ref": "#/definitions/Addr"
+    },
+    "is_closed": {
+      "type": "boolean"
     },
     "options": {
       "type": "array",
