@@ -17,4 +17,7 @@ pub enum ContractError {
 
     #[error("Vote Option does not exist")]
     VoteOptionNotFound {},
+
+    #[error("Insufficient funds")]
+    InsufficientFunds {},
 }

@@ -76,6 +76,17 @@ fn execute_create_poll(
         return Err(ContractError::TooManyOptions {});
     }
 
+    let config = CONFIG.load(deps.storage)?;
+    let create_poll_fee = config.create_poll_fee.unwrap_or_default();
+
+    if !create_poll_fee.amount.is_zero()
+        && !info.funds.iter().any(|coin| {
+            coin.denom == create_poll_fee.denom && coin.amount >= create_poll_fee.amount
+        })
+    {
+        return Err(ContractError::InsufficientFunds {});
+    }
+
     let mut opts: Vec<(String, u64)> = vec![];
     for option in options {
         opts.push((option, 0));
@@ -294,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_create_poll_valid() {
+    fn test_execute_create_poll_valid_without_create_poll_fee() {
         let mut deps = mock_dependencies();
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
@@ -327,7 +338,40 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_create_poll_invalid() {
+    fn test_execute_create_poll_valid_with_create_poll_fee() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info(ADDR1, &[coin(1, ATOM)]);
+        // Instantiate the contract
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: Some(coin(1, ATOM)),
+        };
+        let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // New execute msg
+        let question = "What's your favourite Cosmos coin?";
+        let msg = ExecuteMsg::CreatePoll {
+            poll_id: "some_id".to_string(),
+            question: question.to_string(),
+            options: vec![
+                "Cosmos Hub".to_string(),
+                "Juno".to_string(),
+                "Osmosis".to_string(),
+            ],
+        };
+
+        // Unwrap to assert success
+        let res = execute(deps.as_mut(), env, info, msg).unwrap();
+
+        assert_eq!(
+            res.attributes,
+            vec![attr("action", "create_poll"), attr("question", question)]
+        )
+    }
+
+    #[test]
+    fn test_execute_create_poll_invalid_too_many_options() {
         let mut deps = mock_dependencies();
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
@@ -359,6 +403,36 @@ mod tests {
         // Unwrap error to assert failure
         let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
         assert_eq!(err, ContractError::TooManyOptions {})
+    }
+
+    #[test]
+    fn test_execute_create_poll_invalid_insufficient_funds() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info(ADDR1, &[]);
+        // Instantiate the contract
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: Some(coin(1, ATOM)),
+        };
+        let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // New execute msg
+        let question = "What's your favourite Cosmos coin?";
+        let msg = ExecuteMsg::CreatePoll {
+            poll_id: "some_id".to_string(),
+            question: question.to_string(),
+            options: vec![
+                "Cosmos Hub".to_string(),
+                "Juno".to_string(),
+                "Osmosis".to_string(),
+            ],
+        };
+
+        // Unwrap to assert success
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+
+        assert_eq!(err, ContractError::InsufficientFunds {})
     }
 
     #[test]
