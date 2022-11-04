@@ -1,3 +1,4 @@
+use cosmwasm_std::Coin;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -7,6 +8,7 @@ use crate::state::{Ballot, Config, Poll};
 #[serde(rename_all = "snake_case")]
 pub struct InstantiateMsg {
     pub admin: Option<String>,
+    pub create_poll_fee: Option<Coin>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]

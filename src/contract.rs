@@ -26,13 +26,23 @@ pub fn instantiate(
 
     let admin = msg.admin.unwrap_or_else(|| info.sender.to_string());
     let validated_admin = deps.api.addr_validate(&admin)?;
+    let create_poll_fee = msg.create_poll_fee;
     let config = Config {
         admin: validated_admin.clone(),
+        create_poll_fee: create_poll_fee.clone(),
     };
     CONFIG.save(deps.storage, &config)?;
     Ok(Response::new()
         .add_attribute("action", "instantiate")
-        .add_attribute("admin", validated_admin.to_string()))
+        .add_attribute("admin", validated_admin.to_string())
+        .add_attribute(
+            "create_poll_fee_denom",
+            create_poll_fee.clone().unwrap_or_default().denom,
+        )
+        .add_attribute(
+            "create_poll_fee_amount",
+            create_poll_fee.unwrap_or_default().amount.to_string(),
+        ))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -190,13 +200,14 @@ mod tests {
     };
     use crate::ContractError;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{attr, from_binary}; // helper to construct an attribute e.g. ("action", "instantiate")
+    use cosmwasm_std::{attr, coin, from_binary}; // helper to construct an attribute e.g. ("action", "instantiate")
 
     use super::execute; // mock functions to mock an environment, message info, dependencies // our instantate method
 
     // Two fake addresses we will use to mock_info
     pub const ADDR1: &str = "addr1";
     pub const ADDR2: &str = "addr2";
+    pub const ATOM: &str = "atom";
 
     #[test]
     fn test_instantiate() {
@@ -208,13 +219,21 @@ mod tests {
         let info = mock_info(ADDR1, &[]);
 
         // Create a message where we (the sender) will be an admin
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
         // Call instantiate, unwrap to assert success
         let res = instantiate(deps.as_mut(), env, info, msg).unwrap();
 
         assert_eq!(
             res.attributes,
-            vec![attr("action", "instantiate"), attr("admin", ADDR1)]
+            vec![
+                attr("action", "instantiate"),
+                attr("admin", ADDR1),
+                attr("create_poll_fee_denom", ""),
+                attr("create_poll_fee_amount", "0")
+            ]
         )
     }
 
@@ -230,13 +249,47 @@ mod tests {
         // Create a message where ADDR2 will be an admin
         let msg = InstantiateMsg {
             admin: Some(ADDR2.to_string()),
+            create_poll_fee: None,
         };
         // Call instantiate, unwrap to assert success
         let res = instantiate(deps.as_mut(), env, info, msg).unwrap();
 
         assert_eq!(
             res.attributes,
-            vec![attr("action", "instantiate"), attr("admin", ADDR2)]
+            vec![
+                attr("action", "instantiate"),
+                attr("admin", ADDR2),
+                attr("create_poll_fee_denom", ""),
+                attr("create_poll_fee_amount", "0")
+            ]
+        )
+    }
+
+    #[test]
+    fn test_instantiate_with_create_poll_fee() {
+        // Mock the dependencies, must be mutable so we can pass it as a mutable, empty vector means our contract has no balance
+        let mut deps = mock_dependencies();
+        // Mock the contract environment, contains the block info, contract address, etc.
+        let env = mock_env();
+        // Mock the message info, ADDR1 will be the sender, the empty vec means we sent no funds.
+        let info = mock_info(ADDR1, &[]);
+
+        // Create a message where ADDR2 will be an admin
+        let msg = InstantiateMsg {
+            admin: Some(ADDR2.to_string()),
+            create_poll_fee: Some(coin(1, ATOM)),
+        };
+        // Call instantiate, unwrap to assert success
+        let res = instantiate(deps.as_mut(), env, info, msg).unwrap();
+
+        assert_eq!(
+            res.attributes,
+            vec![
+                attr("action", "instantiate"),
+                attr("admin", ADDR2),
+                attr("create_poll_fee_denom", ATOM),
+                attr("create_poll_fee_amount", "1")
+            ]
         )
     }
 
@@ -246,7 +299,10 @@ mod tests {
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
         // Instantiate the contract
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
         let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
         // New execute msg
@@ -276,7 +332,10 @@ mod tests {
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
         // Instantiate the contract
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
         let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
         let msg = ExecuteMsg::CreatePoll {
@@ -308,7 +367,10 @@ mod tests {
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
         // Instantiate the contract
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
         let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
         // Create the poll
@@ -364,7 +426,10 @@ mod tests {
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
         // Instantiate the contract
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
         let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
         // Create the vote, some_id poll is not created yet.
@@ -402,7 +467,10 @@ mod tests {
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
         // Instantiate the contract
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
         let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
         // Create a poll
@@ -438,7 +506,10 @@ mod tests {
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
         // Instantiate the contract
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
         let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
 
         // Query
@@ -454,7 +525,10 @@ mod tests {
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
         // Instantiate the contract
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
         let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
         // Create a poll
@@ -494,7 +568,10 @@ mod tests {
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
         // Instantiate the contract
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
         let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
         // Create a poll
@@ -543,7 +620,10 @@ mod tests {
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
         // Instantiate the contract
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
         let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
 
         // Query
