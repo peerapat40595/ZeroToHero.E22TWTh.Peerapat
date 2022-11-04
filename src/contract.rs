@@ -59,11 +59,11 @@ pub fn execute(
             options,
         } => execute_create_poll(deps, env, info, poll_id, question, options),
         ExecuteMsg::DeletePoll { poll_id: _poll_id } => todo!(),
+        ExecuteMsg::ClosePoll { poll_id } => execute_close_poll(deps, env, info, poll_id),
         ExecuteMsg::Vote { poll_id, vote } => execute_vote(deps, env, info, poll_id, vote),
         ExecuteMsg::UnVote { poll_id: _poll_id } => todo!(),
     }
 }
-
 fn execute_create_poll(
     deps: DepsMut,
     _env: Env,
@@ -96,12 +96,41 @@ fn execute_create_poll(
         creator: info.sender,
         question: question.to_string(),
         options: opts,
+        is_closed: false,
     };
     POLLS.save(deps.storage, &poll_id, &poll)?;
 
     Ok(Response::new()
         .add_attribute("action", "create_poll")
         .add_attribute("question", question))
+}
+
+fn execute_close_poll(
+    deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    poll_id: String,
+) -> Result<Response, ContractError> {
+    let poll = POLLS.may_load(deps.storage, &poll_id)?;
+
+    match poll {
+        Some(mut poll) => {
+            // The poll exists
+            if poll.is_closed {
+                return Err(ContractError::PollClosed {});
+            }
+
+            poll.is_closed = true;
+
+            // Save the update
+            POLLS.save(deps.storage, &poll_id, &poll)?;
+            Ok(Response::new()
+                .add_attribute("action", "close_poll")
+                .add_attribute("question", poll.question)
+                .add_attribute("is_closed", "true"))
+        }
+        None => Err(ContractError::PollNotFound {}),
+    }
 }
 
 fn execute_vote(
@@ -116,6 +145,10 @@ fn execute_vote(
     match poll {
         Some(mut poll) => {
             // The poll exists
+            if poll.is_closed {
+                return Err(ContractError::PollClosed {});
+            }
+
             BALLOTS.update(
                 deps.storage,
                 (info.sender, &poll_id),
@@ -436,6 +469,107 @@ mod tests {
     }
 
     #[test]
+    fn test_execute_close_poll_valid() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info(ADDR1, &[]);
+        // Instantiate the contract
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
+        let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // New execute msg
+        let question = "What's your favourite Cosmos coin?";
+        let msg = ExecuteMsg::CreatePoll {
+            poll_id: "some_id".to_string(),
+            question: question.to_string(),
+            options: vec![
+                "Cosmos Hub".to_string(),
+                "Juno".to_string(),
+                "Osmosis".to_string(),
+            ],
+        };
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // Close poll
+        let msg = ExecuteMsg::ClosePoll {
+            poll_id: "some_id".to_string(),
+        };
+
+        let res = execute(deps.as_mut(), env, info, msg).unwrap();
+
+        assert_eq!(
+            res.attributes,
+            vec![
+                attr("action", "close_poll"),
+                attr("question", question.to_string()),
+                attr("is_closed", "true")
+            ]
+        )
+    }
+
+    #[test]
+    fn test_execute_close_poll_invalid_poll_closed() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info(ADDR1, &[]);
+        // Instantiate the contract
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
+        let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // New execute msg
+        let question = "What's your favourite Cosmos coin?";
+        let msg = ExecuteMsg::CreatePoll {
+            poll_id: "some_id".to_string(),
+            question: question.to_string(),
+            options: vec![
+                "Cosmos Hub".to_string(),
+                "Juno".to_string(),
+                "Osmosis".to_string(),
+            ],
+        };
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // Close poll
+        let msg = ExecuteMsg::ClosePoll {
+            poll_id: "some_id".to_string(),
+        };
+
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap();
+
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+
+        assert_eq!(err, ContractError::PollClosed {})
+    }
+
+    #[test]
+    fn test_execute_close_poll_invalid_poll_not_found() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info(ADDR1, &[]);
+        // Instantiate the contract
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
+        let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // Close poll
+        let msg = ExecuteMsg::ClosePoll {
+            poll_id: "some_id".to_string(),
+        };
+
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+
+        assert_eq!(err, ContractError::PollNotFound {})
+    }
+
+    #[test]
     fn test_execute_vote_valid() {
         let mut deps = mock_dependencies();
         let env = mock_env();
@@ -495,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_vote_invalid() {
+    fn test_execute_vote_invalid_option_not_found() {
         let mut deps = mock_dependencies();
         let env = mock_env();
         let info = mock_info(ADDR1, &[]);
@@ -533,6 +667,86 @@ mod tests {
         };
         let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
         assert_eq!(err, ContractError::VoteOptionNotFound {})
+    }
+
+    #[test]
+    fn test_execute_vote_invalid_poll_closed() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info(ADDR1, &[]);
+        // Instantiate the contract
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
+        let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // Create the poll
+        let question = "What's your favourite Cosmos coin?";
+        let msg = ExecuteMsg::CreatePoll {
+            poll_id: "some_id".to_string(),
+            question: question.to_string(),
+            options: vec![
+                "Cosmos Hub".to_string(),
+                "Juno".to_string(),
+                "Osmosis".to_string(),
+            ],
+        };
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // Create the vote, first time voting
+        let vote = "Juno";
+        let msg = ExecuteMsg::Vote {
+            poll_id: "some_id".to_string(),
+            vote: "Juno".to_string(),
+        };
+        let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        assert_eq!(
+            res.attributes,
+            vec![
+                attr("action", "vote"),
+                attr("question", question),
+                attr("voted_option", vote)
+            ]
+        );
+
+        // Close poll
+        let msg = ExecuteMsg::ClosePoll {
+            poll_id: "some_id".to_string(),
+        };
+        let _res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // Change the vote
+        let vote = "Osmosis";
+        let msg = ExecuteMsg::Vote {
+            poll_id: "some_id".to_string(),
+            vote: vote.to_string(),
+        };
+
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::PollClosed {})
+    }
+
+    #[test]
+    fn test_execute_vote_invalid_poll_not_found() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info(ADDR1, &[]);
+        // Instantiate the contract
+        let msg = InstantiateMsg {
+            admin: None,
+            create_poll_fee: None,
+        };
+        let _res = instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        // Create the vote
+        let msg = ExecuteMsg::Vote {
+            poll_id: "some_id".to_string(),
+            vote: "Juno".to_string(),
+        };
+
+        let err = execute(deps.as_mut(), env, info, msg).unwrap_err();
+        assert_eq!(err, ContractError::PollNotFound {})
     }
 
     #[test]

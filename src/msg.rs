@@ -22,6 +22,9 @@ pub enum ExecuteMsg {
     DeletePoll {
         poll_id: String,
     },
+    ClosePoll {
+        poll_id: String,
+    },
     Vote {
         poll_id: String,
         vote: String,

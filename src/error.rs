@@ -15,6 +15,9 @@ pub enum ContractError {
     #[error("Poll does not exist")]
     PollNotFound {},
 
+    #[error("Poll is closed")]
+    PollClosed {},
+
     #[error("Vote Option does not exist")]
     VoteOptionNotFound {},
 
